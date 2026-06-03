@@ -98,6 +98,75 @@ def register_recipe_tools(mcp: FastMCP, mealie: MealieFetcher) -> None:
             )
             raise ToolError(error_msg)
 
+@mcp.tool()
+    def set_recipe_organizers(
+        slug: str,
+        categories: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        rating: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Assigne une catégorie, des tags et/ou une note à une recette existante.
+        Les noms sont les noms affichés (ex. "Plat principal", "Été"). Le tag ou la
+        catégorie est créé s'il n'existe pas. Les catégories remplacent, les tags
+        s'ajoutent à l'existant (pas de doublon). Rating de 1 à 5.
+
+        Args:
+            slug: Identifiant de la recette.
+            categories: Noms de catégories à poser (ex. ["Plat principal"]).
+            tags: Noms de tags à ajouter (ex. ["Été", "Végétarien"]).
+            rating: Note de 1 à 5 (optionnel).
+
+        Returns:
+            Dict[str, Any]: La recette mise à jour.
+        """
+        import re
+        import unicodedata
+
+        def _slug(s: str) -> str:
+            s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower()
+            return re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+
+        def _resolve(kind: str, names: List[str]):
+            existing = mealie._handle_request(
+                "GET", f"/api/organizers/{kind}", params={"perPage": 200}
+            ).get("items", [])
+            by_key = {_slug(o["name"]): o for o in existing}
+            out = []
+            for n in names:
+                k = _slug(n)
+                o = by_key.get(k)
+                if not o:
+                    o = mealie._handle_request(
+                        "POST", f"/api/organizers/{kind}", json={"name": n}
+                    )
+                    by_key[k] = o
+                out.append(o)
+            return out
+
+        try:
+            logger.info({"message": "Setting recipe organizers", "slug": slug})
+            recipe = mealie.get_recipe(slug)
+
+            if categories is not None:
+                recipe["recipeCategory"] = _resolve("categories", categories)
+            if tags is not None:
+                current = recipe.get("tags") or []
+                have = {_slug(t["name"]) for t in current}
+                for o in _resolve("tags", tags):
+                    if _slug(o["name"]) not in have:
+                        current.append(o)
+                        have.add(_slug(o["name"]))
+                recipe["tags"] = current
+            if rating is not None:
+                recipe["rating"] = rating
+
+            return mealie.update_recipe(slug, recipe)
+        except Exception as e:
+            error_msg = f"Error setting organizers for '{slug}': {str(e)}"
+            logger.error({"message": error_msg})
+            logger.debug({"message": "Error traceback", "traceback": traceback.format_exc()})
+            raise ToolError(error_msg)
+    
     @mcp.tool()
     def get_recipe_concise(slug: str) -> Dict[str, Any]:
         """Retrieve a concise version of a specific recipe by its slug identifier. Use this when you only
