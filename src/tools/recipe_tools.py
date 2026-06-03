@@ -98,7 +98,7 @@ def register_recipe_tools(mcp: FastMCP, mealie: MealieFetcher) -> None:
             )
             raise ToolError(error_msg)
 
-@mcp.tool()
+    @mcp.tool()
     def set_recipe_organizers(
         slug: str,
         categories: Optional[List[str]] = None,
